@@ -10,75 +10,73 @@ BOT_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 def get_candle(symbol):
     try:
-        ticker = symbol
-        if "." not in symbol.upper():
-            ticker = f"{symbol.upper()}.NS"
+        symbol = symbol.upper().strip()
+        ticker_str = symbol if "." in symbol else f"{symbol}.NS"
 
-        # Fast download
-        data = yf.download(ticker, period="2d", interval="1d", progress=False, auto_adjust=True)
-        if data.empty:
-            return f"{symbol} nahi mila. NSE wala naam likh jaise TCS, RELIANCE"
+        stock = yf.Ticker(ticker_str)
+        # History is more stable than download on Render
+        hist = stock.history(period="5d")
 
-        today = data.iloc[-1]
-        yesterday = data.iloc[-2] if len(data) > 1 else today
+        if hist.empty:
+            return f"❌ {symbol} nahi mila. NSE naam likh jaise TCS, RELIANCE, INFY"
+
+        # Last 2 days
+        today = hist.iloc[-1]
+        prev = hist.iloc[-2] if len(hist) > 1 else today
 
         open_p = float(today['Open'])
         close_p = float(today['Close'])
         high_p = float(today['High'])
         low_p = float(today['Low'])
-        prev_close = float(yesterday['Close'])
+        prev_close = float(prev['Close'])
 
         change = close_p - prev_close
-        perc = (change/prev_close*100) if prev_close!=0 else 0
+        perc = (change/prev_close*100) if prev_close else 0
 
-        # Candle Type
         if close_p > open_p:
-            candle = "🟢 GREEN / Bullish"
+            candle = "🟢 GREEN Bullish"
+            trend = "Buyer Strong"
         elif close_p < open_p:
-            candle = "🔴 RED / Bearish"
+            candle = "🔴 RED Bearish"
+            trend = "Seller Strong"
         else:
             candle = "⚪ Doji"
-
-        body = abs(close_p - open_p)
-        total_range = high_p - low_p
+            trend = "Confusion"
 
         ist = pytz.timezone('Asia/Kolkata')
         now = datetime.now(ist).strftime("%d-%b %I:%M %p")
 
-        msg = f"""📊 *{symbol.upper()}* - {candle}
+        msg = f"""📊 *{symbol}* - {candle}
+_{trend}_
 
-💰 *Price:* {close_p:.2f} ({perc:+.2f}%)
+💰 Close: {close_p:.2f} ({perc:+.2f}%)
 🔓 Open: {open_p:.2f}
-🔒 Close: {close_p:.2f}
 ⬆️ High: {high_p:.2f}
 ⬇️ Low: {low_p:.2f}
-
-📏 Body: {body:.2f} | Range: {total_range:.2f}
+📉 Prev Close: {prev_close:.2f}
 
 🕐 {now} IST
-Bot: SARA Candle Bot"""
+🤖 SARA Bot"""
         return msg
     except Exception as e:
         print(f"Error: {e}")
-        return f"Error aa gaya {symbol} pe. Dobara try kar."
+        return f"⚠️ {symbol} pe thoda issue hai ({e}). 2 min baad TCS dobara try kar."
 
 @app.route('/')
 def home():
-    return "SARA Bot Live Hai"
+    return "SARA Bot Live"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
-    if "message" in data:
+    if "message" in data and "text" in data["message"]:
         chat_id = data["message"]["chat"]["id"]
-        text = data["message"].get("text","").strip()
-        if not text or text.startswith('/start'):
-            reply = "👋 Namaste! Koi bhi Stock naam bhejo jaise:\nTCS, INFY, RELIANCE, NIFTY"
+        text = data["message"]["text"].strip()
+        if text.startswith('/start'):
+            reply = "👋 Namaste! Stock naam bhejo\nJaise: TCS, RELIANCE, NIFTY, BANKNIFTY"
         else:
-            # Symbol nikal - sirf pehla word
-            symbol = text.split()[0].replace("$","")
-            reply = get_candle(symbol)
-
+            sym = text.split()[0].replace("$","")
+            reply = get_candle(sym)
         requests.post(f"{BOT_URL}/sendMessage", json={"chat_id": chat_id, "text": reply, "parse_mode": "Markdown"})
     return "ok"
 
